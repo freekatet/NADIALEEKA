@@ -23,7 +23,7 @@ let bgImage;
 let faceImages = [];
 let blinkImages = [];
 let currentComposite;
-let showDebug = true;
+let showDebug = false;
 let showComposite = true;
 let faceDetected = false;
 let facePosition = { x: 0, y: 0 };
@@ -215,11 +215,11 @@ function draw() {
   const previewY = 10;
   
   // Draw webcam video in small corner with horizontal flip
-  push();
-  translate(previewX + previewSize, previewY);
-  scale(-1, 1);
-  image(video, 0, 0, previewSize, previewSize * 0.75);
-  pop();
+  // push();
+  // translate(previewX + previewSize, previewY);
+  // scale(-1, 1);
+  // image(video, 0, 0, previewSize, previewSize * 0.75);
+  // pop();
 
   // Process face detection and update grid position with smoothing
   if (faces.length > 0) {
@@ -321,6 +321,12 @@ function draw() {
       const previewH_scaled = h * scaleY;
       const previewCenterX_scaled = previewX + previewSize - (centerX * scaleX);
       const previewCenterY_scaled = previewY + (centerY * scaleY);
+
+      push();
+      translate(previewX + previewSize, previewY);
+      scale(-1, 1);
+      image(video, 0, 0, previewSize, previewSize * 0.75);
+      pop();
 
       stroke(0, 255, 0);
       fill(0, 255, 0, 50);
