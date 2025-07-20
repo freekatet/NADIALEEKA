@@ -12,6 +12,12 @@ let video;
 let faces = [];
 let options = { maxFaces: 1, refineLandmarks: false, flipHorizontal: false };
 
+// Mobile detection and optimizations
+let isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+let isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+let loadingScreen = null;
+let loadingState = 'initializing'; // 'initializing', 'camera', 'facemesh', 'ready', 'error'
+
 // Grid system variables
 let bgImage;
 let faceImages = [];
@@ -42,7 +48,7 @@ const GRID_HEIGHT = 30;  // Y coordinates: 0-29
 const FACE_POSITION = { x: 414, y: 193 };
 
 function preload() {
-  faceMesh = ml5.faceMesh(options);
+  faceMesh = ml5.faceMesh(options, modelReady);
   
   // Load background image with error handling
   try {
@@ -108,20 +114,93 @@ function preload() {
 }
 
 function setup() {
-  // Create larger canvas to match background image aspect ratio
-  // Based on FACE_POSITION (414, 193), background seems to be around 800x600
-  createCanvas(800, 600);
+  // Get loading screen element
+  loadingScreen = document.getElementById('loading');
+  
+  // Mobile-optimized canvas size
+  let canvasWidth, canvasHeight;
+  if (isMobile) {
+    // Use smaller canvas on mobile for better performance
+    canvasWidth = min(800, windowWidth);
+    canvasHeight = min(600, windowHeight);
+    console.log('Mobile detected, using canvas size:', canvasWidth, 'x', canvasHeight);
+  } else {
+    canvasWidth = 800;
+    canvasHeight = 600;
+  }
+  
+  createCanvas(canvasWidth, canvasHeight);
 
-  video = createCapture(VIDEO);
-  video.size(800, 600);
+  // Mobile-optimized video capture
+  let videoConstraints = {
+    video: {
+      width: { ideal: isMobile ? 640 : 800 },
+      height: { ideal: isMobile ? 480 : 600 },
+      facingMode: 'user'
+    }
+  };
+  
+  video = createCapture(VIDEO, videoConstraints);
+  video.size(isMobile ? 640 : 800, isMobile ? 480 : 600);
   video.hide();
 
-  faceMesh.detectStart(video, gotFaces);
+  // Add error handling for video capture
+  video.elt.addEventListener('loadedmetadata', () => {
+    console.log('Video loaded successfully');
+    loadingState = 'camera';
+    updateLoadingProgress('Camera ready, starting face detection...');
+    
+    // Start face detection with timeout
+    try {
+      faceMesh.detectStart(video, gotFaces);
+      loadingState = 'facemesh';
+      updateLoadingProgress('Face detection started');
+      
+      // Set a timeout to hide loading screen even if face detection is slow
+      setTimeout(() => {
+        if (loadingState === 'facemesh' && loadingScreen) {
+          console.log('Face detection timeout - hiding loading screen anyway');
+          loadingState = 'ready';
+          loadingScreen.classList.add('hidden');
+        }
+      }, 5000); // 5 second timeout
+      
+    } catch (error) {
+      console.error('Face detection error:', error);
+      loadingState = 'error';
+      updateLoadingProgress('Face detection failed');
+    }
+  });
+  
+  video.elt.addEventListener('error', (error) => {
+    console.error('Video capture error:', error);
+    loadingState = 'error';
+    if (loadingScreen) {
+      loadingScreen.innerHTML = '<div style="color: #ff6b6b;">Camera access denied or not available</div>';
+    }
+  });
+
+  // Start face detection with error handling
+  try {
+    faceMesh.detectStart(video, gotFaces);
+    console.log('Face detection started');
+  } catch (error) {
+    console.error('Face detection error:', error);
+    if (loadingScreen) {
+      loadingScreen.innerHTML = '<div style="color: #ff6b6b;">Face detection failed to initialize</div>';
+    }
+  }
 }
 
 function draw() {
   background(0);
   frameCount++;
+  
+  // Mobile performance optimization - reduce processing frequency
+  if (isMobile && frameCount % 2 !== 0) {
+    // Skip every other frame on mobile for better performance
+    return;
+  }
   
   // Draw composite image as the main focus (large and prominent)
   // Keep showing the last composite even when face detection is lost
@@ -264,8 +343,38 @@ function draw() {
   }
 }
 
+function modelReady() {
+  console.log('FaceMesh model is ready!');
+  loadingState = 'model_ready';
+  updateLoadingProgress('Face detection model loaded');
+}
+
+function updateLoadingProgress(message) {
+  console.log('Loading progress:', message);
+  if (loadingScreen) {
+    loadingScreen.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        <div style="margin-bottom: 10px;">${message}</div>
+        <div style="color: #666; font-size: 12px;">Please allow camera access when prompted</div>
+      </div>
+    `;
+  }
+}
+
 function gotFaces(results) {
   faces = results;
+  
+  // Hide loading screen when face detection is working
+  if (loadingState === 'facemesh' && loadingScreen) {
+    loadingState = 'ready';
+    loadingScreen.classList.add('hidden');
+    console.log('Face detection ready, hiding loading screen');
+  }
+  
+  // Mobile error handling
+  if (isMobile && !results) {
+    console.log('No face detection results on mobile - this is normal');
+  }
 }
 
 function updateComposite() {
@@ -301,7 +410,9 @@ function updateComposite() {
       console.log('Canvas size:', width, 'x', height);
       
       // Draw background with proper aspect ratio and exposure adjustment
-      console.log('Applying background exposure:', bgExposure);
+      if (!isMobile) {
+        console.log('Applying background exposure:', bgExposure);
+      }
       
       if (bgExposure !== 1.0) {
         // Apply exposure adjustment like Python version
@@ -327,11 +438,15 @@ function updateComposite() {
         
         // Draw the adjusted background
         composite.image(bgBuffer, bgX, bgY);
-        console.log('Applied exposure adjustment with pixel manipulation');
+        if (!isMobile) {
+          console.log('Applied exposure adjustment with pixel manipulation');
+        }
       } else {
         // Draw background normally if no exposure adjustment
         composite.image(bgImage, bgX, bgY, bgWidth, bgHeight);
-        console.log('Drew background without exposure adjustment');
+        if (!isMobile) {
+          console.log('Drew background without exposure adjustment');
+        }
       }
   } else {
     // Fallback: draw a colored background
@@ -443,5 +558,16 @@ function keyPressed() {
     bgExposure = 1.0; // Reset to normal exposure
     console.log('Background exposure reset to:', bgExposure);
     updateComposite(); // Update composite with new exposure
+  }
+}
+
+// Mobile-friendly window resize handler
+function windowResized() {
+  if (isMobile) {
+    // On mobile, try to maintain aspect ratio
+    let newWidth = min(800, windowWidth);
+    let newHeight = min(600, windowHeight);
+    resizeCanvas(newWidth, newHeight);
+    console.log('Mobile canvas resized to:', newWidth, 'x', newHeight);
   }
 }
