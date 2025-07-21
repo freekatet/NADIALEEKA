@@ -39,6 +39,20 @@ let lastFaceTime = 0;
 let faceTimeout = 1000; // 1 second timeout
 let bgExposure = 1.025; // Background exposure multiplier (1.0 = normal, 0.5 = darker, 2.0 = brighter)
 
+// Preview interaction variables
+let previewX = 20;
+let previewY = 120; // Position under the debug text
+let previewSize = 150; // Half the original 300px size
+let isDragging = false;
+let isResizing = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let resizeStartX = 0;
+let resizeStartY = 0;
+let originalPreviewX = 0;
+let originalPreviewY = 0;
+let originalPreviewSize = 150;
+
 // Grid settings (20x30 as specified)
 const GRID_WIDTH = 20;   // X coordinates: 0-19
 const GRID_HEIGHT = 30;  // Y coordinates: 0-29
@@ -57,6 +71,9 @@ function preload() {
       () => {
         console.log('Background loaded successfully');
         console.log('Background size:', bgImage.width, 'x', bgImage.height);
+        
+        // Canvas is already full window size from setup()
+        console.log('INITIAL LOAD - Canvas already full window size:', width, 'x', height);
       },
       // Error callback
       (err) => {
@@ -117,19 +134,12 @@ function setup() {
   // Get loading screen element
   loadingScreen = document.getElementById('loading');
   
-  // Mobile-optimized canvas size
-  let canvasWidth, canvasHeight;
-  if (isMobile) {
-    // Use smaller canvas on mobile for better performance
-    canvasWidth = min(800, windowWidth);
-    canvasHeight = min(600, windowHeight);
-    console.log('Mobile detected, using canvas size:', canvasWidth, 'x', canvasHeight);
-  } else {
-    canvasWidth = 800;
-    canvasHeight = 600;
-  }
+  // Create canvas with full window size from the start
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+  createCanvas(windowWidth, windowHeight);
   
-  createCanvas(canvasWidth, canvasHeight);
+  // No need for browser fullscreen event listeners - we'll use p5.js fullscreen
 
   // Mobile-optimized video capture
   let videoConstraints = {
@@ -202,25 +212,70 @@ function draw() {
     return;
   }
   
+  // Check if we're in fullscreen mode using p5.js
+  const isFullscreen = fullscreen();
+  
+  // Debug fullscreen info
+  if (isFullscreen && frameCount % 60 === 0) {
+    console.log('Fullscreen debug:', {
+      canvasSize: `${width}x${height}`,
+      screenSize: `${window.screen.width}x${window.screen.height}`,
+      windowSize: `${windowWidth}x${windowHeight}`,
+      isFullscreen: isFullscreen
+    });
+  }
+  
   // Draw composite image as the main focus (large and prominent)
   // Keep showing the last composite even when face detection is lost
   if (showComposite && currentComposite) {
-    image(currentComposite, 0, 0, width, height);
+    if (isFullscreen) {
+      // In fullscreen mode, simply stretch the composite to fill the entire screen
+      image(currentComposite, 0, 0, width, height);
+      console.log('Stretched composite to fill fullscreen');
+      
+      // Log background scaling every frame in fullscreen
+      const bgScaleX = width / bgImage.width;
+      const bgScaleY = height / bgImage.height;
+      console.log('=== FULLSCREEN BACKGROUND SCALING ===');
+      console.log('Canvas size:', width, 'x', height);
+      console.log('Background original:', bgImage.width, 'x', bgImage.height);
+      console.log('Background scaling factors:', bgScaleX, 'x', bgScaleY);
+      console.log('Background is stretched to:', width, 'x', height);
+    } else {
+      // Normal mode - display as usual
+      image(currentComposite, 0, 0, width, height);
+    }
   }
   // Removed the "Composite missing!" message - composite will be created when face is detected
   
-  // Draw small webcam preview in corner (mirrored)
-  const previewSize = 200;
-  const previewX = width - previewSize - 10;
-  const previewY = 10;
+  // Draw camera preview overlay in debug mode
+  if (showDebug) {
+    // Use draggable preview position and size
+    const currentPreviewSize = isFullscreen ? 200 : previewSize;
+    const currentPreviewX = isFullscreen ? width - currentPreviewSize - 20 : previewX;
+    const currentPreviewY = isFullscreen ? 20 : previewY;
+    
+    // Draw camera preview with mirroring
+    push();
+    translate(currentPreviewX + currentPreviewSize, currentPreviewY);
+    scale(-1, 1);
+    image(video, 0, 0, currentPreviewSize, currentPreviewSize * 0.75);
+    pop();
+    
+    // Draw border around preview
+    stroke(0, 255, 0);
+    strokeWeight(2);
+    noFill();
+    rect(currentPreviewX, currentPreviewY, currentPreviewSize, currentPreviewSize * 0.75);
+    
+    // Draw resize handle (small square in bottom-right corner)
+    if (!isFullscreen) {
+      fill(0, 255, 0);
+      noStroke();
+      rect(currentPreviewX + currentPreviewSize - 10, currentPreviewY + currentPreviewSize * 0.75 - 10, 10, 10);
+    }
+  }
   
-  // Draw webcam video in small corner with horizontal flip
-  // push();
-  // translate(previewX + previewSize, previewY);
-  // scale(-1, 1);
-  // image(video, 0, 0, previewSize, previewSize * 0.75);
-  // pop();
-
   // Process face detection and update grid position with smoothing
   if (faces.length > 0) {
     let face = faces[0];
@@ -299,7 +354,7 @@ function draw() {
     }
   }
 
-  // Draw the faces' bounding boxes on the small preview
+  // Draw the faces' bounding boxes on the preview overlay
   if (showDebug) {
     for (let i = 0; i < faces.length; i++) {
       let face = faces[i];
@@ -310,41 +365,50 @@ function draw() {
       let centerX = (face.box.xMin + face.box.xMax) / 2;
       let centerY = (face.box.yMin + face.box.yMax) / 2;
 
-      // Scale coordinates to match the small preview (mirrored)
-      const scaleX = previewSize / video.width;
-      const scaleY = (previewSize * 0.75) / video.height;
+      // Scale coordinates to match the draggable preview overlay (mirrored)
+      const currentPreviewSize = isFullscreen ? 200 : previewSize;
+      const currentPreviewX = isFullscreen ? width - currentPreviewSize - 20 : previewX;
+      const currentPreviewY = isFullscreen ? 20 : previewY;
+      const scaleX = currentPreviewSize / video.width;
+      const scaleY = (currentPreviewSize * 0.75) / video.height;
       
       // Mirror the coordinates for the flipped preview
-      const previewX_scaled = previewX + previewSize - (x * scaleX) - (w * scaleX);
-      const previewY_scaled = previewY + (y * scaleY);
+      const previewX_scaled = currentPreviewX + currentPreviewSize - (x * scaleX) - (w * scaleX);
+      const previewY_scaled = currentPreviewY + (y * scaleY);
       const previewW_scaled = w * scaleX;
       const previewH_scaled = h * scaleY;
-      const previewCenterX_scaled = previewX + previewSize - (centerX * scaleX);
-      const previewCenterY_scaled = previewY + (centerY * scaleY);
+      const previewCenterX_scaled = currentPreviewX + currentPreviewSize - (centerX * scaleX);
+      const previewCenterY_scaled = currentPreviewY + (centerY * scaleY);
 
-      push();
-      translate(previewX + previewSize, previewY);
-      scale(-1, 1);
-      image(video, 0, 0, previewSize, previewSize * 0.75);
-      pop();
-
+      // Draw bounding box on the preview overlay
       stroke(0, 255, 0);
+      strokeWeight(2);
       fill(0, 255, 0, 50);
       rect(previewX_scaled, previewY_scaled, previewW_scaled, previewH_scaled);
-      text(i, previewX_scaled, previewY_scaled - 5);
+      
+      // Draw face index
+      fill(255);
+      textSize(12);
+      textAlign(LEFT, TOP);
+      text(i, previewX_scaled, previewY_scaled - 15);
 
       // Draw the center of the face
       noStroke();
       fill(255, 0, 0);
-      circle(previewCenterX_scaled, previewCenterY_scaled, 5);
+      circle(previewCenterX_scaled, previewCenterY_scaled, 8);
       
-      // Draw grid position info in corner
+      // Draw debug info in top-left corner
       fill(255);
-      textSize(10);
-      text(`Grid: (${gridPosition.x}, ${gridPosition.y})`, 10, 20);
-      text(`Face: (${facePosition.x.toFixed(2)}, ${facePosition.y.toFixed(2)})`, 10, 35);
-      text(`Blinking: ${isBlinking ? 'Yes' : 'No'}`, 10, 50);
-      text(`BG Exposure: ${bgExposure.toFixed(1)}`, 10, 65);
+      textSize(isFullscreen ? 16 : 14);
+      textAlign(LEFT, TOP);
+      text(`Grid: (${gridPosition.x}, ${gridPosition.y})`, 20, 20);
+      text(`Face: (${facePosition.x.toFixed(2)}, ${facePosition.y.toFixed(2)})`, 20, 40);
+      text(`Blinking: ${isBlinking ? 'Yes' : 'No'}`, 20, 60);
+      text(`BG Exposure: ${bgExposure.toFixed(2)}`, 20, 80);
+      text(`Canvas: ${width}x${height}`, 20, 100);
+      if (isFullscreen) {
+        text(`Fullscreen: Stretched`, 20, 120);
+      }
     }
   }
 }
@@ -387,25 +451,57 @@ function updateComposite() {
   // Create composite image
   let composite = createGraphics(width, height);
   
+  // Check if we're in fullscreen mode using p5.js
+  const isFullscreen = fullscreen();
+  
   // Draw background if available
   if (bgImage) {
-          // Place background at (0,0) but maintain aspect ratio
+    if (isFullscreen) {
+      // In fullscreen mode, stretch background to fill entire canvas (disregard aspect ratio)
+      composite.image(bgImage, 0, 0, width, height);
+      
+      // Log the actual background scaling in fullscreen
+      const bgScaleX = width / bgImage.width;
+      const bgScaleY = height / bgImage.height;
+      console.log('=== FULLSCREEN BACKGROUND SCALING ===');
+      console.log('Canvas size:', width, 'x', height);
+      console.log('Background original:', bgImage.width, 'x', bgImage.height);
+      console.log('Background scaling factors:', bgScaleX, 'x', bgScaleY);
+      console.log('Background is stretched to:', width, 'x', height);
+      
+      // Apply exposure adjustment if needed
+      if (bgExposure !== 1.0) {
+        // Apply exposure adjustment like Python version
+        composite.loadPixels();
+        let pixels = composite.pixels;
+        
+        // Apply exposure multiplier to each pixel
+        for (let i = 0; i < pixels.length; i += 4) {
+          pixels[i] = constrain(pixels[i] * bgExposure, 0, 255);     // R
+          pixels[i + 1] = constrain(pixels[i + 1] * bgExposure, 0, 255); // G
+          pixels[i + 2] = constrain(pixels[i + 2] * bgExposure, 0, 255); // B
+        }
+        
+        composite.updatePixels();
+      }
+    } else {
+      // Normal mode - fill entire canvas while respecting aspect ratio and centering
       const bgAspectRatio = bgImage.width / bgImage.height;
       const canvasAspectRatio = width / height;
       
       let bgWidth, bgHeight, bgX, bgY;
       
       if (bgAspectRatio > canvasAspectRatio) {
-        // Background is wider than canvas - fit to width
+        // Background is wider than canvas - fit to width and center vertically
         bgWidth = width;
         bgHeight = width / bgAspectRatio;
         bgX = 0;
-        bgY = 0; // Place at top instead of centering
+        bgY = (height - bgHeight) / 2; // Center vertically
       } else {
-        // Background is taller than canvas - fit to height
+        // Background is taller than canvas - fit to height and center horizontally
         bgHeight = height;
         bgWidth = height * bgAspectRatio;
-        bgX = 0; // Place at left instead of centering
+        bgX = (width - bgWidth) / 2; // Center horizontally
         bgY = 0;
       }
       
@@ -454,6 +550,7 @@ function updateComposite() {
           console.log('Drew background without exposure adjustment');
         }
       }
+    }
   } else {
     // Fallback: draw a colored background
     composite.background(100, 150, 200);
@@ -471,51 +568,81 @@ function updateComposite() {
     const faceImage = isBlinking ? blinkImages[faceIndex] : faceImages[faceIndex];
     
     if (faceImage) {
-      // Calculate scaled face position based on background scaling
-      const bgAspectRatio = bgImage.width / bgImage.height;
-      const canvasAspectRatio = width / height;
-      
-      let bgWidth, bgHeight, bgX, bgY;
-      
-      if (bgAspectRatio > canvasAspectRatio) {
-        // Background is wider than canvas - fit to width
-        bgWidth = width;
-        bgHeight = width / bgAspectRatio;
-        bgX = 0;
-        bgY = (height - bgHeight) / 2;
+      if (isFullscreen) {
+        // In fullscreen mode, background is stretched to fill entire canvas
+        // So we need to scale face overlay to match the stretched background
+        const scaleX = width / bgImage.width;  // How much wider the canvas is than original bg
+        const scaleY = height / bgImage.height; // How much taller the canvas is than original bg
+        
+        // Face overlay - scale both size and position by the fullscreen stretch factors
+        const originalFaceSize = 455; // Actual face image size
+        // Scale face size by both X and Y factors to maintain proportions
+        const faceSizeX = originalFaceSize * scaleX;
+        const faceSizeY = originalFaceSize * scaleY;
+        
+        // Scale FACE_POSITION by both X and Y factors to match stretched background
+        const faceX = FACE_POSITION.x * scaleX;
+        const faceY = FACE_POSITION.y * scaleY;
+        
+        // Draw face image at scaled position with proper X and Y dimensions
+        composite.image(faceImage, faceX, faceY, faceSizeX, faceSizeY);
+        
+        console.log('=== FULLSCREEN MODE ===');
+        console.log('Canvas dimensions:', width, 'x', height);
+        console.log('Background original size:', bgImage.width, 'x', bgImage.height);
+        console.log('Fullscreen stretch factors - scaleX:', scaleX, 'scaleY:', scaleY);
+        console.log('Original face position:', FACE_POSITION.x, FACE_POSITION.y);
+        console.log('Scaled face position:', faceX, faceY);
+        console.log('Original face size:', originalFaceSize);
+        console.log('Scaled face size X:', faceSizeX, 'Y:', faceSizeY);
+        console.log('Face overlay final:', faceX, faceY, faceSizeX, faceSizeY);
       } else {
-        // Background is taller than canvas - fit to height
-        bgHeight = height;
-        bgWidth = height * bgAspectRatio;
-        bgX = (width - bgWidth) / 2;
-        bgY = 0;
+        // Normal mode - use aspect ratio scaling
+        const bgAspectRatio = bgImage.width / bgImage.height;
+        const canvasAspectRatio = width / height;
+        
+        let bgWidth, bgHeight, bgX, bgY;
+        
+        if (bgAspectRatio > canvasAspectRatio) {
+          // Background is wider than canvas - fit to width
+          bgWidth = width;
+          bgHeight = width / bgAspectRatio;
+          bgX = 0;
+          bgY = (height - bgHeight) / 2;
+        } else {
+          // Background is taller than canvas - fit to height
+          bgHeight = height;
+          bgWidth = height * bgAspectRatio;
+          bgX = (width - bgWidth) / 2;
+          bgY = 0;
+        }
+        
+        const scaleX = bgWidth / bgImage.width;
+        const scaleY = bgHeight / bgImage.height;
+        
+        // Face overlay - scale to match the filled background
+        const originalFaceSize = 455; // Actual face image size
+        const faceSize = originalFaceSize * scaleX; // Scale with background
+        
+        // Scale FACE_POSITION relative to the filled and centered background
+        const faceX = bgX + (FACE_POSITION.x * scaleX);
+        const faceY = bgY + (FACE_POSITION.y * scaleY);
+        
+        // Draw face image at scaled position
+        composite.image(faceImage, faceX, faceY, faceSize, faceSize);
+        
+        console.log('=== NORMAL MODE ===');
+        console.log('Canvas dimensions:', width, 'x', height);
+        console.log('Background original size:', bgImage.width, 'x', bgImage.height);
+        console.log('Background displayed size:', bgWidth, 'x', bgHeight);
+        console.log('Background position:', bgX, bgY);
+        console.log('Scaling factors - scaleX:', scaleX, 'scaleY:', scaleY);
+        console.log('Original face position:', FACE_POSITION.x, FACE_POSITION.y);
+        console.log('Scaled face position:', faceX, faceY);
+        console.log('Original face size:', originalFaceSize);
+        console.log('Scaled face size:', faceSize);
+        console.log('Face overlay final:', faceX, faceY, faceSize, faceSize);
       }
-      
-      // Calculate scale factors
-      const scaleX = bgWidth / bgImage.width;
-      const scaleY = bgHeight / bgImage.height;
-      
-      console.log('Scale factors:', scaleX, scaleY);
-      console.log('Original FACE_POSITION:', FACE_POSITION.x, FACE_POSITION.y);
-      
-      // Use original FACE_POSITION coordinates relative to the scaled background
-      // Face images are 455×456 pixels, so scale them proportionally
-      const originalFaceSize = 455; // Actual face image size
-      const faceSize = originalFaceSize * scaleX; // Scale with background
-      
-      // Simply scale the FACE_POSITION by the scaling factors
-      const faceX = FACE_POSITION.x * scaleX;
-      const faceY = FACE_POSITION.y * scaleY;
-      
-      // Draw face image at scaled position
-      composite.image(faceImage, faceX, faceY, faceSize, faceSize);
-      
-      console.log('Face overlay bounds:', faceX, faceY, faceSize, faceSize);
-      console.log('Original face size:', originalFaceSize);
-      console.log('Scaled face size:', faceSize);
-      console.log('Background scale factors:', scaleX, scaleY);
-      console.log('Face position relative to background:', FACE_POSITION.x * scaleX, FACE_POSITION.y * scaleY);
-      console.log('Face position on canvas:', faceX + faceSize/2, faceY + faceSize/2);
     }
   }
   
@@ -549,14 +676,19 @@ function keyPressed() {
   if (key === 'c' || key === 'C') {
     showComposite = !showComposite;
   }
+  // Fullscreen toggle
+  if (key === 'f' || key === 'F') {
+    toggleFullscreen();
+  }
+  // p5.js handles Escape key automatically for fullscreen
   // Background exposure controls
   if (key === '=' || key === '+') {
-    bgExposure = constrain(bgExposure + 0.1, 0.1, 5.0);
+    bgExposure = constrain(bgExposure + 0.01, 0.1, 2.0);
     console.log('Background exposure:', bgExposure);
     updateComposite(); // Update composite with new exposure
   }
   if (key === '-' || key === '_') {
-    bgExposure = constrain(bgExposure - 0.1, 0.1, 5.0);
+    bgExposure = constrain(bgExposure - 0.01, 0.1, 2.0);
     console.log('Background exposure:', bgExposure);
     updateComposite(); // Update composite with new exposure
   }
@@ -567,13 +699,109 @@ function keyPressed() {
   }
 }
 
-// Mobile-friendly window resize handler
-function windowResized() {
-  if (isMobile) {
-    // On mobile, try to maintain aspect ratio
-    let newWidth = min(800, windowWidth);
-    let newHeight = min(600, windowHeight);
-    resizeCanvas(newWidth, newHeight);
-    console.log('Mobile canvas resized to:', newWidth, 'x', newHeight);
+// Fullscreen toggle function using p5.js
+function toggleFullscreen() {
+  if (!fullscreen()) {
+    // Enter fullscreen
+    fullscreen(true);
+    console.log('Entering p5.js fullscreen mode');
+    
+    // Resize canvas to fill entire screen
+    setTimeout(() => {
+      const screenWidth = window.screen.width;
+      const screenHeight = window.screen.height;
+      resizeCanvas(screenWidth, screenHeight);
+      console.log('Canvas resized for fullscreen:', screenWidth, 'x', screenHeight);
+    }, 100);
+  } else {
+    // Exit fullscreen
+    fullscreen(false);
+    console.log('Exiting p5.js fullscreen mode');
+    
+    // Resize canvas back to window size
+    setTimeout(() => {
+      resizeCanvasToWindow();
+    }, 100);
   }
+}
+
+// Resize canvas to fit window size
+function resizeCanvasToWindow() {
+  // Use full window size for canvas
+  const windowWidth = window.innerWidth;
+  const windowHeight = window.innerHeight;
+  
+  resizeCanvas(windowWidth, windowHeight);
+  console.log('Canvas resized to full window size:', windowWidth, 'x', windowHeight);
+}
+
+// Window resize handler - adapt canvas to window size
+function windowResized() {
+  // Don't resize if in fullscreen mode
+  if (fullscreen()) {
+    return;
+  }
+  
+  // Use the helper function to resize canvas
+  resizeCanvasToWindow();
+}
+
+// Mouse interaction functions for preview
+function mousePressed() {
+  if (!showDebug || fullscreen()) return;
+  
+  const currentPreviewSize = previewSize;
+  const currentPreviewX = previewX;
+  const currentPreviewY = previewY;
+  
+  // Check if mouse is over the preview
+  if (mouseX >= currentPreviewX && mouseX <= currentPreviewX + currentPreviewSize &&
+      mouseY >= currentPreviewY && mouseY <= currentPreviewY + currentPreviewSize * 0.75) {
+    
+    // Check if mouse is over resize handle
+    if (mouseX >= currentPreviewX + currentPreviewSize - 10 && 
+        mouseY >= currentPreviewY + currentPreviewSize * 0.75 - 10) {
+      isResizing = true;
+      resizeStartX = mouseX;
+      resizeStartY = mouseY;
+      originalPreviewSize = currentPreviewSize;
+    } else {
+      isDragging = true;
+      dragStartX = mouseX - currentPreviewX;
+      dragStartY = mouseY - currentPreviewY;
+      originalPreviewX = currentPreviewX;
+      originalPreviewY = currentPreviewY;
+    }
+  }
+}
+
+function mouseDragged() {
+  if (!showDebug || fullscreen()) return;
+  
+  if (isDragging) {
+    previewX = mouseX - dragStartX;
+    previewY = mouseY - dragStartY;
+    
+    // Keep preview within canvas bounds
+    previewX = constrain(previewX, 0, width - previewSize);
+    previewY = constrain(previewY, 0, height - previewSize * 0.75);
+  }
+  
+  if (isResizing) {
+    const deltaX = mouseX - resizeStartX;
+    const deltaY = mouseY - resizeStartY;
+    const newSize = originalPreviewSize + max(deltaX, deltaY);
+    
+    // Constrain size between 100 and 500
+    previewSize = constrain(newSize, 100, 500);
+    
+    // Keep preview within canvas bounds
+    previewX = constrain(previewX, 0, width - previewSize);
+    previewY = constrain(previewY, 0, height - previewSize * 0.75);
+  }
+}
+
+function mouseReleased() {
+  isDragging = false;
+  isResizing = false;
 }
