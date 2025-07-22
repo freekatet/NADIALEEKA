@@ -230,8 +230,8 @@ function draw() {
   if (showComposite && currentComposite) {
     if (isFullscreen) {
       // In fullscreen mode, simply stretch the composite to fill the entire screen
-      image(currentComposite, 0, 0, width, height);
-      console.log('Stretched composite to fill fullscreen');
+        image(currentComposite, 0, 0, width, height);
+        console.log('Stretched composite to fill fullscreen');
       
       // Log background scaling every frame in fullscreen
       const bgScaleX = width / bgImage.width;
@@ -288,7 +288,7 @@ function draw() {
     
     // Convert to grid position with correct axis mapping
     // Y position (up/down) controls X grid (yaw): top = low grid X, bottom = high grid X (inverted)
-    let newGridX = Math.floor(facePosition.y * GRID_WIDTH);
+    let newGridX = Math.floor((facePosition.y * 3.5 )* GRID_WIDTH);
     // X position (left/right) controls Y grid (pitch): left = high grid Y, right = low grid Y
     let newGridY = Math.floor((1 - facePosition.x) * GRID_HEIGHT);
     
@@ -486,24 +486,24 @@ function updateComposite() {
       }
     } else {
       // Normal mode - fill entire canvas while respecting aspect ratio and centering
-      const bgAspectRatio = bgImage.width / bgImage.height;
-      const canvasAspectRatio = width / height;
-      
-      let bgWidth, bgHeight, bgX, bgY;
-      
-      if (bgAspectRatio > canvasAspectRatio) {
+    const bgAspectRatio = bgImage.width / bgImage.height;
+    const canvasAspectRatio = width / height;
+    
+    let bgWidth, bgHeight, bgX, bgY;
+    
+    if (bgAspectRatio > canvasAspectRatio) {
         // Background is wider than canvas - fit to width and center vertically
-        bgWidth = width;
-        bgHeight = width / bgAspectRatio;
-        bgX = 0;
-        bgY = (height - bgHeight) / 2; // Center vertically
-      } else {
+      bgWidth = width;
+      bgHeight = width / bgAspectRatio;
+      bgX = 0;
+      bgY = (height - bgHeight) / 2; // Center vertically
+    } else {
         // Background is taller than canvas - fit to height and center horizontally
-        bgHeight = height;
-        bgWidth = height * bgAspectRatio;
-        bgX = (width - bgWidth) / 2; // Center horizontally
-        bgY = 0;
-      }
+      bgHeight = height;
+      bgWidth = height * bgAspectRatio;
+      bgX = (width - bgWidth) / 2; // Center horizontally
+      bgY = 0;
+    }
       
       // Log the actual displayed background size
       console.log('Original bg size:', bgImage.width, 'x', bgImage.height);
@@ -549,8 +549,8 @@ function updateComposite() {
         if (!isMobile) {
           console.log('Drew background without exposure adjustment');
         }
+        }
       }
-    }
   } else {
     // Fallback: draw a colored background
     composite.background(100, 150, 200);
@@ -598,39 +598,39 @@ function updateComposite() {
         console.log('Face overlay final:', faceX, faceY, faceSizeX, faceSizeY);
       } else {
         // Normal mode - use aspect ratio scaling
-        const bgAspectRatio = bgImage.width / bgImage.height;
-        const canvasAspectRatio = width / height;
-        
-        let bgWidth, bgHeight, bgX, bgY;
-        
-        if (bgAspectRatio > canvasAspectRatio) {
-          // Background is wider than canvas - fit to width
-          bgWidth = width;
-          bgHeight = width / bgAspectRatio;
-          bgX = 0;
-          bgY = (height - bgHeight) / 2;
-        } else {
-          // Background is taller than canvas - fit to height
-          bgHeight = height;
-          bgWidth = height * bgAspectRatio;
-          bgX = (width - bgWidth) / 2;
-          bgY = 0;
-        }
-        
-        const scaleX = bgWidth / bgImage.width;
-        const scaleY = bgHeight / bgImage.height;
-        
+      const bgAspectRatio = bgImage.width / bgImage.height;
+      const canvasAspectRatio = width / height;
+      
+      let bgWidth, bgHeight, bgX, bgY;
+      
+      if (bgAspectRatio > canvasAspectRatio) {
+        // Background is wider than canvas - fit to width
+        bgWidth = width;
+        bgHeight = width / bgAspectRatio;
+        bgX = 0;
+        bgY = (height - bgHeight) / 2;
+      } else {
+        // Background is taller than canvas - fit to height
+        bgHeight = height;
+        bgWidth = height * bgAspectRatio;
+        bgX = (width - bgWidth) / 2;
+        bgY = 0;
+      }
+      
+      const scaleX = bgWidth / bgImage.width;
+      const scaleY = bgHeight / bgImage.height;
+      
         // Face overlay - scale to match the filled background
-        const originalFaceSize = 455; // Actual face image size
-        const faceSize = originalFaceSize * scaleX; // Scale with background
-        
+      const originalFaceSize = 455; // Actual face image size
+      const faceSize = originalFaceSize * scaleX; // Scale with background
+      
         // Scale FACE_POSITION relative to the filled and centered background
-        const faceX = bgX + (FACE_POSITION.x * scaleX);
-        const faceY = bgY + (FACE_POSITION.y * scaleY);
-        
-        // Draw face image at scaled position
-        composite.image(faceImage, faceX, faceY, faceSize, faceSize);
-        
+      const faceX = bgX + (FACE_POSITION.x * scaleX);
+      const faceY = bgY + (FACE_POSITION.y * scaleY);
+      
+      // Draw face image at scaled position
+      composite.image(faceImage, faceX, faceY, faceSize, faceSize);
+      
         console.log('=== NORMAL MODE ===');
         console.log('Canvas dimensions:', width, 'x', height);
         console.log('Background original size:', bgImage.width, 'x', bgImage.height);
